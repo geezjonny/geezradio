@@ -1,21 +1,21 @@
 {
   "name": "GeezRadio",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "manifest_version": 1,
-  "description": "Shared YouTube music queue, named tracks, playlists, and soundboard",
+  "description": "Synchronized GitHub-hosted music playlists and MP3 soundboard",
   "author": "GeezSheets",
   "icon": "https://geezjonny.github.io/geezradio/icon.svg",
   "action": {
     "title": "GeezRadio",
     "icon": "https://geezjonny.github.io/geezradio/icon.svg",
     "popover": "https://geezjonny.github.io/geezradio/index.html",
-    "width": 430,
+    "width": 450,
     "height": 700
   },
   "permissions": [
     {
       "name": "autoplay",
-      "reason": "Play GM-selected songs and sound effects"
+      "reason": "Play shared music and sound effects after audio is enabled"
     }
   ]
 }

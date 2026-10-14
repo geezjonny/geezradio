@@ -9,65 +9,88 @@
 <body>
   <header>
     <div><strong>♫ GeezRadio</strong><small id="role">Connecting…</small></div>
-    <span class="pill" id="connection">Starting</span>
+    <span id="connection" class="pill">Starting</span>
   </header>
-  <nav class="tabs" aria-label="Radio tabs">
-    <button data-tab="music" class="selected">♫ Music</button>
-    <button data-tab="playlists">☷ Playlists</button>
-    <button data-tab="sounds">◉ Soundboard</button>
+
+  <nav class="tabs" aria-label="GeezRadio tabs">
+    <button type="button" data-tab="music" class="selected">♫ Music</button>
+    <button type="button" data-tab="playlists">☷ Playlists</button>
+    <button type="button" data-tab="sounds">◉ Soundboard</button>
   </nav>
-  <section id="tab-music" class="tab">
-    <div class="eyebrow">NOW PLAYING</div>
-    <strong id="nowTitle">Nothing playing</strong>
-    <span id="nowId" class="muted"></span>
-    <div id="player" class="video"></div>
-    <div class="controls">
-      <button id="playPause">▶ Play</button>
-      <button id="skip">⏭ Skip</button>
-      <button id="loop">Loop: Off</button>
-    </div>
+
+  <section class="common">
+    <button id="enable" class="primary full">▶ Enable audio on this device</button>
     <div class="volume">
-      <label for="volume">My volume</label>
+      <label for="volume">Music</label>
       <input id="volume" type="range" min="0" max="100" value="60">
       <span id="volumeNumber">60%</span>
     </div>
-    <button id="enable" class="full primary">▶ Enable audio on this device</button>
-    <div id="gmSection">
-      <form id="addForm">
-        <label for="url">Add YouTube track</label>
-        <input id="url" type="text" placeholder="YouTube URL or video ID" required>
-        <input id="trackName" type="text" maxlength="100" placeholder="Track name (optional)">
-        <button type="submit" class="full">+ Add to queue</button>
-      </form>
+    <div class="volume">
+      <label for="sfxVolume">Effects</label>
+      <input id="sfxVolume" type="range" min="0" max="100" value="75">
+      <span id="sfxVolumeNumber">75%</span>
     </div>
-    <div class="queueHead"><strong>Queue</strong><button id="clear">Clear</button></div>
-    <div id="queue" class="queue"></div>
   </section>
+
+  <section id="tab-music" class="tab">
+    <div class="eyebrow">NOW PLAYING</div>
+    <strong id="nowTitle">Nothing playing</strong>
+    <span id="nowPath" class="muted"></span>
+    <div class="controls">
+      <button id="playPause" type="button">▶ Play</button>
+      <button id="skip" type="button">⏭ Skip</button>
+      <button id="loop" type="button">Loop: Off</button>
+    </div>
+    <div class="queueHead"><strong>Queue</strong><button id="clear" type="button">Clear</button></div>
+    <div id="queue" class="queue"></div>
+
+    <div id="gmMusic" class="editing">
+      <h3>Add from GitHub music folder</h3>
+      <div class="formRow">
+        <select id="musicLibrary"><option value="">Refresh library to see tracks</option></select>
+        <button id="refreshLibrary" type="button">↻ Refresh</button>
+      </div>
+      <button id="addFromLibrary" type="button" class="full">+ Add selected track</button>
+      <details>
+        <summary>Or enter a file path manually</summary>
+        <form id="addForm">
+          <input id="url" type="text" placeholder="music/boss-theme.mp3" required>
+          <input id="trackName" type="text" maxlength="100" placeholder="Display name (optional)">
+          <button type="submit" class="full">+ Add to queue</button>
+        </form>
+      </details>
+    </div>
+  </section>
+
   <section id="tab-playlists" class="tab" hidden>
     <h3>Saved playlists</h3>
-    <p class="hint">Saved in this browser. Export a backup to use on other devices.</p>
+    <p class="hint">Playlists are saved in this browser. Export them for a backup or another device.</p>
     <form id="savePlaylistForm" class="formRow">
-      <input id="playlistName" type="text" maxlength="70" placeholder="e.g. Tavern ambience" required>
+      <input id="playlistName" type="text" maxlength="70" placeholder="e.g. Boss Battle" required>
       <button type="submit">Save queue</button>
     </form>
     <div id="playlists" class="queue"></div>
-    <div class="formRow"><button id="exportPlaylists">Export JSON</button><label class="importLabel">Import JSON<input id="importPlaylists" type="file" accept=".json,application/json" hidden></label></div>
+    <div class="formRow">
+      <button id="exportPlaylists" type="button">Export JSON</button>
+      <label class="importLabel">Import JSON
+        <input id="importPlaylists" type="file" accept=".json,application/json" hidden>
+      </label>
+    </div>
   </section>
+
   <section id="tab-sounds" class="tab" hidden>
     <h3>Soundboard</h3>
-    <p class="hint">GM triggers short YouTube clips for everyone. Sound effects use a separate player so music continues. Some YouTube videos block embedding or autoplay.</p>
-    <div id="soundFormArea">
-      <form id="soundForm">
-        <input id="soundName" type="text" maxlength="70" placeholder="Sound name (e.g. Thunder)" required>
-        <input id="soundUrl" type="text" placeholder="YouTube link or video ID" required>
-        <button type="submit" class="full">+ Add sound</button>
-      </form>
+    <p class="hint">Files from <code>sounds/</code> appear here automatically. The GM triggers them for everyone with audio enabled. Music keeps playing.</p>
+    <div class="formRow">
+      <button id="refreshSounds" type="button" class="full">↻ Refresh sounds from GitHub</button>
+      <button id="stopSound" type="button">■ Stop</button>
     </div>
     <div id="soundButtons" class="soundGrid"></div>
-    <button id="stopSound">■ Stop sound</button>
-    <div id="soundPlayer" class="soundVideo"></div>
   </section>
-  <section><p class="hint" id="status" aria-live="polite">Open GeezRadio on each device and enable audio. Keep the panel open.</p></section>
+
+  <section class="footer">
+    <p id="status" class="hint" aria-live="polite">Open this panel on each device and enable audio. Keep it open to hear music.</p>
+  </section>
   <script type="module" src="app.js"></script>
 </body>
 </html>

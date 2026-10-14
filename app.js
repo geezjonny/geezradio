@@ -1,63 +1,82 @@
 import OBR from "https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@2.3.0/+esm";
 
+const ROOT = "https://geezjonny.github.io/geezradio/";
+const GITHUB = "https://api.github.com/repos/geezjonny/geezradio/contents/";
 const KEY = "com.geezsheets.geezradio/state";
-const SAVED_KEY = "geezradio/playlists/v1";
-const $ = (id) => document.getElementById(id);
-const blank = () => ({ queue: [], index: -1, playing: false, position: 0, updatedAt: Date.now(), loop: "off", revision: 0, sounds: [], soundEvent: null });
-let state = blank();
+const SAVED_KEY = "geezradio/playlists/v2";
+const AUDIO_EXTENSIONS = /\.(mp3|ogg|wav|m4a)$/i;
+const $ = id => document.getElementById(id);
+
+const music = new Audio();
+const effect = new Audio();
+music.preload = "auto";
+effect.preload = "auto";
+
 let gm = false;
-let musicPlayer = null;
-let soundPlayer = null;
-let musicReady = false;
-let soundReady = false;
 let unlocked = false;
-let activeId = null;
-let observedRevision = -1;
-let observedSoundNonce = null;
+let roomState = emptyState();
+let revisionSeen = -1;
+let currentMusicPath = "";
+let currentSoundNonce = null;
+let library = { music: [], sounds: [] };
+let playlists = loadPlaylists();
 let writeBusy = false;
-let playlists = loadLocal();
 
-function say(message) { $("status").textContent = message; }
-
-function parseYouTubeId(input) {
-  const value = String(input || "").trim();
-  if (/^[\w-]{11}$/.test(value)) return value;
-  try {
-    const url = new URL(value);
-    const host = url.hostname.toLowerCase().replace(/^www\./, "");
-    let id;
-    if (host === "youtu.be") id = url.pathname.split("/")[1];
-    if (["youtube.com", "m.youtube.com", "music.youtube.com", "youtube-nocookie.com"].includes(host)) {
-      if (url.pathname === "/watch") id = url.searchParams.get("v");
-      else if (/^\/(shorts|live|embed)\//.test(url.pathname)) id = url.pathname.split("/")[2];
-    }
-    return /^[\w-]{11}$/.test(id || "") ? id : null;
-  } catch { return null; }
+function emptyState() {
+  return {
+    queue: [], index: -1, playing: false, position: 0,
+    updatedAt: Date.now(), loop: "off", revision: 0,
+    soundEvent: null
+  };
 }
 
-function cleanTrack(track) {
-  const id = parseYouTubeId(typeof track === "string" ? track : track?.id);
-  if (!id) return null;
-  return { id, name: String(typeof track === "object" ? track.name || "" : "").trim().slice(0, 100) || `YouTube ${id}` };
+function status(message) { $("status").textContent = message; }
+
+function audioPath(value, folder = "music") {
+  const raw = String(value || "").trim().replace(/^\/+/, "");
+  let path = raw;
+  if (raw.startsWith(ROOT)) path = decodeURIComponent(raw.slice(ROOT.length));
+  if (!path.includes("/")) path = `${folder}/${path}`;
+  const chunks = path.split("/").map(piece => {
+    try { return decodeURIComponent(piece); } catch { return piece; }
+  });
+  if (chunks.length < 2 || !["music", "sounds"].includes(chunks[0]) ||
+      chunks.some(piece => !piece || piece === "." || piece === "..") ||
+      !AUDIO_EXTENSIONS.test(chunks.at(-1))) return null;
+  return chunks.map(encodeURIComponent).join("/");
 }
 
-function cleanState(value) {
-  if (!value || typeof value !== "object") return blank();
-  const queue = (Array.isArray(value.queue) ? value.queue : []).map(cleanTrack).filter(Boolean).slice(0, 60);
-  const sounds = (Array.isArray(value.sounds) ? value.sounds : []).map(cleanTrack).filter(Boolean).slice(0, 30);
-  const soundEvent = value.soundEvent && typeof value.soundEvent === "object"
-    ? { id: parseYouTubeId(value.soundEvent.id), nonce: String(value.soundEvent.nonce || ""), stop: value.soundEvent.stop === true }
-    : null;
+function playableUrl(path) { return ROOT + path; }
+function titleForPath(path) {
+  return decodeURIComponent(path.split("/").pop()).replace(AUDIO_EXTENSIONS, "")
+    .replace(/[_-]+/g, " ").trim();
+}
+function cleanTrack(item) {
+  const path = audioPath(typeof item === "string" ? item : item?.path);
+  if (!path) return null;
+  const name = String(typeof item === "object" ? item.name || "" : "").trim();
+  return { path, name: (name || titleForPath(path)).slice(0, 100) };
+}
+function cleanState(input) {
+  if (!input || typeof input !== "object") return emptyState();
+  const queue = (Array.isArray(input.queue) ? input.queue : [])
+    .map(cleanTrack).filter(Boolean).slice(0, 40);
+  const rawEvent = input.soundEvent;
+  const soundEvent = rawEvent && typeof rawEvent === "object" ? {
+    path: rawEvent.path ? audioPath(rawEvent.path, "sounds") : null,
+    nonce: String(rawEvent.nonce || ""),
+    stop: rawEvent.stop === true,
+    at: Number(rawEvent.at) || 0
+  } : null;
   return {
     queue,
-    sounds,
-    soundEvent,
-    index: Math.max(-1, Math.min(Number.isInteger(value.index) ? value.index : -1, queue.length - 1)),
-    playing: value.playing === true,
-    position: Math.max(0, Number(value.position) || 0),
-    updatedAt: Number(value.updatedAt) || Date.now(),
-    loop: ["off", "all", "one"].includes(value.loop) ? value.loop : "off",
-    revision: Number(value.revision) || 0
+    index: Math.max(-1, Math.min(Number.isInteger(input.index) ? input.index : -1, queue.length - 1)),
+    playing: input.playing === true,
+    position: Math.max(0, Number(input.position) || 0),
+    updatedAt: Number(input.updatedAt) || Date.now(),
+    loop: ["off", "all", "one"].includes(input.loop) ? input.loop : "off",
+    revision: Number(input.revision) || 0,
+    soundEvent
   };
 }
 
@@ -65,251 +84,321 @@ async function commit(change) {
   if (!gm || writeBusy) return;
   writeBusy = true;
   try {
-    const metadata = await OBR.room.getMetadata();
-    const previous = cleanState(metadata[KEY]);
-    const next = cleanState(typeof change === "function" ? change(previous) : { ...previous, ...change });
-    next.revision = previous.revision + 1;
-    next.updatedAt = Date.now();
-    await OBR.room.setMetadata({ [KEY]: next });
-  } catch (error) { say(`Room update failed: ${error.message}`); }
-  finally { writeBusy = false; }
+    const existing = cleanState((await OBR.room.getMetadata())[KEY]);
+    const updated = cleanState(change(existing));
+    updated.revision = existing.revision + 1;
+    const oldPath = existing.queue[existing.index]?.path;
+    const newPath = updated.queue[updated.index]?.path;
+    const unchangedPlayback = oldPath === newPath &&
+      existing.playing === updated.playing &&
+      existing.position === updated.position;
+    updated.updatedAt = unchangedPlayback ? existing.updatedAt : Date.now();
+    await OBR.room.setMetadata({ [KEY]: updated });
+  } catch (error) {
+    status(`Unable to update room: ${error.message}`);
+  } finally {
+    writeBusy = false;
+  }
 }
 
-function currentTrack() { return state.queue[state.index] || null; }
-function elapsed() { return state.playing ? state.position + Math.max(0, (Date.now() - state.updatedAt) / 1000) : state.position; }
-function makeButton(label, action, title = "") {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.textContent = label;
-  button.title = title;
-  button.addEventListener("click", action);
-  return button;
+function currentTrack() { return roomState.queue[roomState.index] || null; }
+function elapsed(state = roomState) {
+  return state.playing
+    ? state.position + Math.max(0, (Date.now() - state.updatedAt) / 1000)
+    : state.position;
+}
+function button(label, handler, tooltip = "") {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.textContent = label;
+  el.title = tooltip;
+  el.addEventListener("click", handler);
+  return el;
 }
 
 function renderQueue() {
-  const list = $("queue");
-  list.replaceChildren();
-  if (!state.queue.length) { list.textContent = "Queue is empty"; return; }
-  state.queue.forEach((track, i) => {
+  const parent = $("queue");
+  parent.replaceChildren();
+  if (!roomState.queue.length) { parent.textContent = "No tracks queued."; return; }
+  roomState.queue.forEach((track, index) => {
     const row = document.createElement("div");
-    row.className = `queueItem${i === state.index ? " active" : ""}`;
-    const name = document.createElement("span");
-    name.textContent = `${i + 1}. ${track.name}${i === state.index ? " · now" : ""}`;
-    row.append(name);
+    row.className = `queueItem${index === roomState.index ? " active" : ""}`;
+    const label = document.createElement("span");
+    label.textContent = `${index + 1}. ${track.name}`;
+    row.append(label);
     if (gm) {
-      row.append(makeButton("▶", () => commit(s => ({ ...s, index: i, playing: true, position: 0 })), "Play this track"));
-      row.append(makeButton("✎", () => {
-        const replacement = window.prompt("Rename track", track.name);
-        if (replacement === null || !replacement.trim()) return;
-        commit(s => ({ ...s, queue: s.queue.map((t, j) => j === i ? { ...t, name: replacement.trim().slice(0, 100) } : t) }));
-      }, "Rename"));
-      row.append(makeButton("×", () => commit(s => {
-        const queue = s.queue.filter((_, j) => j !== i);
-        const index = i < s.index ? s.index - 1 : i === s.index ? Math.min(i, queue.length - 1) : s.index;
-        return { ...s, queue, index, playing: queue.length ? s.playing && i !== s.index : false, position: 0 };
+      row.append(button("▶", () => commit(s => ({ ...s, index, playing: true, position: 0 })), "Play"));
+      row.append(button("↑", () => moveTrack(index, -1), "Move up"));
+      row.append(button("↓", () => moveTrack(index, 1), "Move down"));
+      row.append(button("×", () => commit(s => {
+        const queue = s.queue.filter((_, i) => i !== index);
+        const nextIndex = index < s.index ? s.index - 1 :
+          index === s.index ? Math.min(index, queue.length - 1) : s.index;
+        return { ...s, queue, index: nextIndex,
+          playing: index === s.index ? false : s.playing, position: index === s.index ? 0 : elapsed(s) };
       }), "Remove"));
     }
-    list.append(row);
+    parent.append(row);
+  });
+}
+function moveTrack(index, direction) {
+  commit(s => {
+    const target = index + direction;
+    if (target < 0 || target >= s.queue.length) return s;
+    const queue = [...s.queue];
+    [queue[index], queue[target]] = [queue[target], queue[index]];
+    const selected = s.index === index ? target : s.index === target ? index : s.index;
+    return { ...s, queue, index: selected, position: elapsed(s) };
   });
 }
 
-function renderSounds() {
-  const list = $("soundButtons");
-  list.replaceChildren();
-  if (!state.sounds.length) { list.textContent = "No sound effects yet"; return; }
-  state.sounds.forEach((sound, i) => {
-    const card = document.createElement("div");
-    card.className = "soundCard";
-    const trigger = makeButton(`▶ ${sound.name}`, () => commit(s => ({ ...s, soundEvent: { id: sound.id, nonce: `${Date.now()}-${Math.random()}`, stop: false } })));
-    trigger.disabled = !gm;
-    card.append(trigger);
-    if (gm) card.append(makeButton("×", () => commit(s => ({ ...s, sounds: s.sounds.filter((_, j) => j !== i) })), "Remove sound"));
-    list.append(card);
-  });
+function renderSoundboard() {
+  const parent = $("soundButtons");
+  parent.replaceChildren();
+  if (!library.sounds.length) {
+    parent.textContent = "Upload audio files to sounds/, then press Refresh sounds.";
+    return;
+  }
+  for (const track of library.sounds) {
+    const control = button(`▶ ${track.name}`, () => {
+      commit(s => ({ ...s, soundEvent: {
+        path: track.path, nonce: `${Date.now()}-${Math.random()}`, at: Date.now(), stop: false
+      } }));
+    });
+    control.disabled = !gm;
+    parent.append(control);
+  }
 }
 
 function display() {
   const track = currentTrack();
   $("nowTitle").textContent = track?.name || "Nothing playing";
-  $("nowId").textContent = track ? `youtube.com/watch?v=${track.id}` : "";
-  $("playPause").textContent = state.playing ? "⏸ Pause" : "▶ Play";
-  $("loop").textContent = `Loop: ${state.loop[0].toUpperCase() + state.loop.slice(1)}`;
+  $("nowPath").textContent = track?.path || "";
+  $("playPause").textContent = roomState.playing ? "⏸ Pause" : "▶ Play";
+  $("loop").textContent = `Loop: ${roomState.loop}`;
   for (const id of ["playPause", "skip"]) $(id).disabled = !gm || !track;
-  for (const id of ["loop", "clear"]) $(id).disabled = !gm || (id === "clear" && !state.queue.length);
+  for (const id of ["loop", "clear"]) $(id).disabled = !gm;
   $("stopSound").disabled = !gm;
-  $("gmSection").hidden = !gm;
-  $("soundFormArea").hidden = !gm;
+  $("gmMusic").hidden = !gm;
   renderQueue();
-  renderSounds();
+  renderSoundboard();
 }
 
-function syncMusic(force = false) {
-  if (!musicReady || !musicPlayer) return;
+function musicSync(force = false) {
   const track = currentTrack();
-  if (!track) { if (activeId) musicPlayer.stopVideo(); activeId = null; return; }
-  const position = elapsed();
-  if (activeId !== track.id || force) {
-    activeId = track.id;
-    if (unlocked && state.playing) musicPlayer.loadVideoById({ videoId: track.id, startSeconds: position });
-    else musicPlayer.cueVideoById({ videoId: track.id, startSeconds: position });
-  } else if (unlocked && state.playing) {
-    if (Math.abs(musicPlayer.getCurrentTime() - position) > 3) musicPlayer.seekTo(position, true);
-    musicPlayer.playVideo();
-  } else musicPlayer.pauseVideo();
-  musicPlayer.setVolume(Number($("volume").value));
+  const path = track?.path || "";
+  if (path !== currentMusicPath) {
+    music.pause();
+    currentMusicPath = path;
+    music.removeAttribute("src");
+    if (path) music.src = playableUrl(path);
+    music.load();
+    force = true;
+  }
+  if (!track) return;
+  const target = elapsed();
+  const seek = () => {
+    try {
+      if (Number.isFinite(target) && (force || Math.abs(music.currentTime - target) > 2.5)) {
+        music.currentTime = target;
+      }
+    } catch { /* Metadata is not loaded yet. */ }
+  };
+  if (music.readyState >= 1) seek();
+  else music.addEventListener("loadedmetadata", seek, { once: true });
+  if (roomState.playing && unlocked) {
+    music.play().catch(() => status("Playback blocked. Click Enable audio to resume."));
+  } else {
+    music.pause();
+  }
 }
 
-function syncSound() {
-  const event = state.soundEvent;
-  if (!soundReady || !event || event.nonce === observedSoundNonce) return;
-  observedSoundNonce = event.nonce;
-  if (event.stop) { soundPlayer.stopVideo(); return; }
-  if (event.id) {
-    if (unlocked) soundPlayer.loadVideoById(event.id);
-    else { soundPlayer.cueVideoById(event.id); say("Press Enable audio to hear soundboard clips."); }
-    soundPlayer.setVolume(Number($("volume").value));
-  }
+function soundSync() {
+  const event = roomState.soundEvent;
+  if (!event || event.nonce === currentSoundNonce) return;
+  currentSoundNonce = event.nonce;
+  effect.pause();
+  if (event.stop || !event.path) { effect.removeAttribute("src"); return; }
+  // Don't play sound effects fired before this listener was enabled.
+  if (!unlocked || Date.now() - event.at > 12000) return;
+  effect.src = playableUrl(event.path);
+  effect.currentTime = 0;
+  effect.play().catch(() => status("Sound blocked. Click Enable audio."));
 }
 
 function receive(metadata) {
   const next = cleanState(metadata[KEY]);
-  if (next.revision === observedRevision) return;
-  const oldId = currentTrack()?.id;
-  state = next;
-  observedRevision = next.revision;
+  if (next.revision === revisionSeen) return;
+  const old = roomState;
+  const oldTrack = old.queue[old.index]?.path;
+  roomState = next;
+  revisionSeen = next.revision;
   display();
-  syncMusic(oldId !== currentTrack()?.id);
-  syncSound();
+  const newTrack = currentTrack()?.path;
+  const playbackChanged = old.playing !== next.playing ||
+    old.position !== next.position || old.updatedAt !== next.updatedAt;
+  if (oldTrack !== newTrack || playbackChanged) musicSync(oldTrack !== newTrack);
+  soundSync();
 }
 
 function advance() {
   commit(s => {
     if (!s.queue.length) return { ...s, playing: false };
     if (s.loop === "one") return { ...s, playing: true, position: 0 };
-    if (s.index + 1 >= s.queue.length) {
-      return s.loop === "all" ? { ...s, index: 0, playing: true, position: 0 } : { ...s, playing: false, position: 0 };
+    if (s.index + 1 < s.queue.length) {
+      return { ...s, index: s.index + 1, playing: true, position: 0 };
     }
-    return { ...s, index: s.index + 1, playing: true, position: 0 };
+    return s.loop === "all"
+      ? { ...s, index: 0, position: 0, playing: true }
+      : { ...s, position: 0, playing: false };
   });
 }
+music.addEventListener("ended", () => { if (gm && roomState.playing) advance(); });
+music.addEventListener("error", () => {
+  if (music.src) status("Cannot load music. Confirm the MP3 exists in GitHub Pages.");
+});
+effect.addEventListener("error", () => {
+  if (effect.src) status("Cannot load sound effect. Check the sounds/ filename.");
+});
 
-function loadLocal() {
+async function fetchFolder(folder) {
+  const response = await fetch(`${GITHUB}${folder}?ref=main`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`GitHub API returned ${response.status}`);
+  const items = await response.json();
+  if (!Array.isArray(items)) throw new Error("Expected a GitHub folder");
+  return items.filter(item => item.type === "file" && AUDIO_EXTENSIONS.test(item.name))
+    .map(item => cleanTrack({ path: item.path, name: titleForPath(item.path) }))
+    .filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+}
+async function refreshFolder(folder) {
   try {
-    const list = JSON.parse(localStorage.getItem(SAVED_KEY) || "[]");
-    return Array.isArray(list) ? list.filter(x => x && typeof x.name === "string" && Array.isArray(x.queue)).slice(0, 50) : [];
+    const results = await fetchFolder(folder);
+    library[folder] = results;
+    if (folder === "music") {
+      const select = $("musicLibrary");
+      select.replaceChildren();
+      for (const song of results) {
+        const option = document.createElement("option");
+        option.value = song.path;
+        option.textContent = song.name;
+        select.append(option);
+      }
+    }
+    renderSoundboard();
+    status(`Loaded ${results.length} ${folder} files from GitHub.`);
+  } catch (error) {
+    status(`Couldn't list ${folder}/: ${error.message}. You can still enter a music file path manually.`);
+  }
+}
+
+function loadPlaylists() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SAVED_KEY) || "[]");
+    return Array.isArray(saved) ? saved.slice(0, 50) : [];
   } catch { return []; }
 }
-
-function saveLocal() { localStorage.setItem(SAVED_KEY, JSON.stringify(playlists)); }
-
+function savePlaylists() { localStorage.setItem(SAVED_KEY, JSON.stringify(playlists)); }
 function renderPlaylists() {
-  const list = $("playlists");
-  list.replaceChildren();
-  if (!playlists.length) { list.textContent = "No saved playlists"; return; }
-  playlists.forEach((playlist, i) => {
+  const parent = $("playlists");
+  parent.replaceChildren();
+  if (!playlists.length) { parent.textContent = "No playlists saved yet."; return; }
+  playlists.forEach((playlist, index) => {
     const row = document.createElement("div");
     row.className = "queueItem";
-    const title = document.createElement("span");
-    title.textContent = `${playlist.name} (${playlist.queue.length} tracks)`;
-    row.append(title);
-    if (gm) row.append(makeButton("Load", () => commit(s => ({ ...s, queue: playlist.queue.map(cleanTrack).filter(Boolean), index: playlist.queue.length ? 0 : -1, position: 0, playing: false })), "Replace shared queue"));
-    row.append(makeButton("×", () => { playlists.splice(i, 1); saveLocal(); renderPlaylists(); }, "Delete local playlist"));
-    list.append(row);
+    const label = document.createElement("span");
+    label.textContent = `${playlist.name} (${playlist.queue.length} tracks)`;
+    row.append(label);
+    if (gm) row.append(button("Load", () => commit(s => ({
+      ...s, queue: playlist.queue.map(cleanTrack).filter(Boolean),
+      index: playlist.queue.length ? 0 : -1, playing: false, position: 0
+    }))));
+    row.append(button("×", () => {
+      playlists.splice(index, 1);
+      savePlaylists(); renderPlaylists();
+    }, "Delete playlist on this device"));
+    parent.append(row);
   });
 }
 
-function loadYouTube() {
-  return new Promise((resolve, reject) => {
-    if (window.YT?.Player) return resolve();
-    window.onYouTubeIframeAPIReady = resolve;
-    const script = document.createElement("script");
-    script.src = "https://www.youtube.com/iframe_api";
-    script.onerror = () => reject(new Error("Couldn't load YouTube API"));
-    document.head.append(script);
+for (const tabButton of document.querySelectorAll("[data-tab]")) {
+  tabButton.addEventListener("click", () => {
+    for (const tab of document.querySelectorAll(".tab")) {
+      tab.hidden = tab.id !== `tab-${tabButton.dataset.tab}`;
+    }
+    for (const button of document.querySelectorAll("[data-tab]")) {
+      button.classList.toggle("selected", button === tabButton);
+    }
   });
 }
 
-async function start() {
-  await OBR.onReady(async () => {
-    gm = (await OBR.player.getRole()) === "GM";
-    $("role").textContent = gm ? "GM controls" : "Player listening";
-    $("connection").textContent = "Connected";
-    receive(await OBR.room.getMetadata());
-    OBR.room.onMetadataChange(receive);
-    OBR.player.onChange(p => { gm = p.role === "GM"; $("role").textContent = gm ? "GM controls" : "Player listening"; display(); renderPlaylists(); });
-    await loadYouTube();
-    musicPlayer = new YT.Player("player", {
-      height: "195", width: "350", playerVars: { playsinline: 1, controls: 1, origin: location.origin },
-      events: {
-        onReady() { musicReady = true; syncMusic(true); },
-        onStateChange(event) { if (event.data === YT.PlayerState.ENDED && gm && state.playing) advance(); },
-        onError(event) { say(`Music video error ${event.data}. Video may not allow embedding.`); },
-        onAutoplayBlocked() { say("Browser blocked autoplay. Press Enable audio and play inside YouTube if needed."); }
-      }
-    });
-    soundPlayer = new YT.Player("soundPlayer", {
-      height: "90", width: "160", playerVars: { playsinline: 1, controls: 1, origin: location.origin },
-      events: {
-        onReady() { soundReady = true; /* Do not replay old sound events on initial load */ observedSoundNonce = state.soundEvent?.nonce || null; },
-        onError(event) { say(`Sound effect error ${event.data}. Video may block embeds.`); }
-      }
-    });
-  });
-}
-
-for (const button of document.querySelectorAll("[data-tab]")) {
-  button.addEventListener("click", () => {
-    for (const tab of document.querySelectorAll(".tab")) tab.hidden = tab.id !== `tab-${button.dataset.tab}`;
-    for (const control of document.querySelectorAll("[data-tab]")) control.classList.toggle("selected", control === button);
-  });
-}
-
-$("addForm").addEventListener("submit", event => {
-  event.preventDefault();
-  const id = parseYouTubeId($("url").value);
-  if (!id) return say("Please paste a valid YouTube video link or ID.");
-  if (state.queue.length >= 60) return say("Queue limit is 60 tracks.");
-  const name = $("trackName").value.trim() || `YouTube ${id}`;
-  commit(s => ({ ...s, queue: [...s.queue, { id, name }], index: s.index < 0 ? 0 : s.index }));
-  $("url").value = "";
-  $("trackName").value = "";
-});
-$("playPause").onclick = () => commit(s => ({ ...s, playing: !s.playing, position: s.playing ? (musicReady ? musicPlayer.getCurrentTime() : elapsed()) : s.position }));
-$("skip").onclick = advance;
-$("loop").onclick = () => commit(s => ({ ...s, loop: { off: "all", all: "one", one: "off" }[s.loop] }));
-$("clear").onclick = () => commit(s => ({ ...s, queue: [], index: -1, playing: false, position: 0 }));
-$("enable").onclick = () => {
+$("enable").onclick = async () => {
   unlocked = true;
-  if (musicReady && currentTrack()) {
-    musicPlayer.unMute();
-    musicPlayer.loadVideoById({ videoId: currentTrack().id, startSeconds: elapsed() });
-    if (!state.playing) musicPlayer.pauseVideo();
-  }
-  if (soundReady) soundPlayer.unMute();
+  // A user gesture is required by some browsers before sound is allowed.
+  music.volume = Number($("volume").value) / 100;
+  effect.volume = Number($("sfxVolume").value) / 100;
+  musicSync(true);
   $("enable").textContent = "✓ Audio enabled";
-  say("Keep this panel open. YouTube may require a click inside the player for initial playback.");
+  status("Audio enabled. Keep this panel open on each device.");
 };
 $("volume").oninput = () => {
   $("volumeNumber").textContent = `${$("volume").value}%`;
-  if (musicReady) musicPlayer.setVolume(Number($("volume").value));
-  if (soundReady) soundPlayer.setVolume(Number($("volume").value));
+  music.volume = Number($("volume").value) / 100;
 };
+$("sfxVolume").oninput = () => {
+  $("sfxVolumeNumber").textContent = `${$("sfxVolume").value}%`;
+  effect.volume = Number($("sfxVolume").value) / 100;
+};
+$("playPause").onclick = () => commit(s => ({
+  ...s, playing: !s.playing, position: elapsed(s)
+}));
+$("skip").onclick = advance;
+$("loop").onclick = () => commit(s => ({
+  ...s, loop: { off: "all", all: "one", one: "off" }[s.loop], position: elapsed(s)
+}));
+$("clear").onclick = () => commit(s => ({
+  ...s, queue: [], index: -1, playing: false, position: 0
+}));
+$("refreshLibrary").onclick = () => refreshFolder("music");
+$("refreshSounds").onclick = () => refreshFolder("sounds");
+$("addFromLibrary").onclick = () => {
+  const track = library.music.find(track => track.path === $("musicLibrary").value);
+  if (!track) return status("Choose a track from the library first.");
+  if (roomState.queue.length >= 40) return status("Queue limit is 40 tracks.");
+  commit(s => ({ ...s, queue: [...s.queue, track], index: s.index < 0 ? 0 : s.index, position: elapsed(s) }));
+};
+$("addForm").onsubmit = event => {
+  event.preventDefault();
+  const path = audioPath($("url").value);
+  if (!path) return status("Enter a path such as music/boss-theme.mp3");
+  if (roomState.queue.length >= 40) return status("Queue limit is 40 tracks.");
+  const track = { path, name: $("trackName").value.trim().slice(0, 100) || titleForPath(path) };
+  commit(s => ({ ...s, queue: [...s.queue, track], index: s.index < 0 ? 0 : s.index, position: elapsed(s) }));
+  $("url").value = "";
+  $("trackName").value = "";
+};
+$("stopSound").onclick = () => commit(s => ({ ...s, soundEvent: {
+  path: null, stop: true, nonce: `${Date.now()}-${Math.random()}`, at: Date.now()
+} }));
 $("savePlaylistForm").onsubmit = event => {
   event.preventDefault();
   const name = $("playlistName").value.trim();
-  if (!name || !state.queue.length) return say("Name the playlist and add some tracks first.");
-  const existing = playlists.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
-  if (existing >= 0 && !window.confirm(`Replace saved playlist “${name}”?`)) return;
-  if (existing >= 0) playlists.splice(existing, 1);
-  playlists.push({ name, queue: state.queue.map(t => ({ ...t })) });
-  if (playlists.length > 50) playlists.shift();
-  try { saveLocal(); renderPlaylists(); say(`Saved playlist: ${name}`); } catch { say("Unable to save: browser storage is unavailable or full."); }
+  if (!name || !roomState.queue.length) return status("Add songs to the queue first.");
+  const at = playlists.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+  if (at >= 0 && !confirm(`Replace “${name}”?`)) return;
+  if (at >= 0) playlists.splice(at, 1);
+  playlists.push({ name, queue: roomState.queue.map(t => ({ ...t })) });
+  playlists = playlists.slice(-50);
+  try { savePlaylists(); renderPlaylists(); status(`Saved playlist: ${name}`); }
+  catch (error) { status(`Save failed: ${error.message}`); }
 };
 $("exportPlaylists").onclick = () => {
-  const blob = new Blob([JSON.stringify({ format: "geezradio-playlists-v1", playlists }, null, 2)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify({ format: "geezradio-mp3-v2", playlists }, null, 2)],
+    { type: "application/json" });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = "geezradio-playlists.json"; a.click();
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "geezradio-playlists.json";
+  link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 $("importPlaylists").onchange = async event => {
@@ -317,24 +406,47 @@ $("importPlaylists").onchange = async event => {
   if (!file) return;
   try {
     const data = JSON.parse(await file.text());
-    if (data.format !== "geezradio-playlists-v1" || !Array.isArray(data.playlists)) throw new Error("Unsupported file");
-    const imported = data.playlists.slice(0, 50).filter(x => x && typeof x.name === "string" && Array.isArray(x.queue)).map(x => ({ name: x.name.slice(0, 70), queue: x.queue.map(cleanTrack).filter(Boolean).slice(0, 60) }));
-    const byName = new Map(playlists.map(p => [p.name.toLowerCase(), p]));
-    for (const item of imported) byName.set(item.name.toLowerCase(), item);
-    playlists = [...byName.values()].slice(-50);
-    saveLocal(); renderPlaylists(); say(`Imported ${imported.length} playlists.`);
-  } catch (error) { say(`Import failed: ${error.message}`); }
+    if (data.format !== "geezradio-mp3-v2" || !Array.isArray(data.playlists)) {
+      throw new Error("Expected a GeezRadio v2 playlist export");
+    }
+    const imported = data.playlists.slice(0, 50).map(item => ({
+      name: String(item.name || "Unnamed").slice(0, 70),
+      queue: (Array.isArray(item.queue) ? item.queue : []).map(cleanTrack).filter(Boolean).slice(0, 40)
+    }));
+    const combined = new Map(playlists.map(p => [p.name.toLowerCase(), p]));
+    for (const item of imported) combined.set(item.name.toLowerCase(), item);
+    playlists = [...combined.values()].slice(-50);
+    savePlaylists(); renderPlaylists(); status(`Imported ${imported.length} playlists.`);
+  } catch (error) { status(`Import failed: ${error.message}`); }
   event.target.value = "";
 };
-$("soundForm").onsubmit = event => {
-  event.preventDefault();
-  const id = parseYouTubeId($("soundUrl").value);
-  const name = $("soundName").value.trim();
-  if (!id || !name) return say("Enter a sound name and valid YouTube URL.");
-  if (state.sounds.length >= 30) return say("Soundboard limit is 30 clips.");
-  commit(s => ({ ...s, sounds: [...s.sounds, { id, name }] }));
-  $("soundUrl").value = ""; $("soundName").value = "";
-};
-$("stopSound").onclick = () => commit(s => ({ ...s, soundEvent: { id: null, nonce: `${Date.now()}-${Math.random()}`, stop: true } }));
+
+async function start() {
+  await OBR.onReady(async () => {
+    gm = (await OBR.player.getRole()) === "GM";
+    $("role").textContent = gm ? "GM controls" : "Player listener";
+    $("connection").textContent = "Connected";
+    const metadata = await OBR.room.getMetadata();
+    // Ignore stale sound events when initially joining.
+    currentSoundNonce = metadata[KEY]?.soundEvent?.nonce || null;
+    receive(metadata);
+    OBR.room.onMetadataChange(receive);
+    OBR.player.onChange(player => {
+      gm = player.role === "GM";
+      $("role").textContent = gm ? "GM controls" : "Player listener";
+      display(); renderPlaylists();
+    });
+    await Promise.all([refreshFolder("music"), refreshFolder("sounds")]);
+  });
+}
+
+// Correct minor clock drift while music is playing, without resetting the source.
+setInterval(() => {
+  if (!unlocked || !roomState.playing || !currentTrack() || music.readyState < 1) return;
+  if (Math.abs(music.currentTime - elapsed()) > 4) musicSync();
+}, 12000);
 renderPlaylists();
-start().catch(error => { $("connection").textContent = "Error"; say(`Startup failed: ${error.message}`); });
+start().catch(error => {
+  $("connection").textContent = "Error";
+  status(`Startup failed: ${error.message}`);
+});
