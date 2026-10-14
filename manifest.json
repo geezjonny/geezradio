@@ -8,7 +8,7 @@
   "action": {
     "title": "GeezRadio",
     "icon": "icon.svg",
-    "popover": "index.html",
+    "popover": "https://geezjonny.github.io/geezradio/index.html",
     "width": 410,
     "height": 650
   },
