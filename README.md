@@ -1,6 +1,10 @@
-# GeezRadio v1.0
+# GeezRadio v1.0.1
 
 A simple YouTube queue for Owlbear Rodeo. Host these files at the root of a GitHub Pages repository.
+
+## Fix in 1.0.1
+
+The manifest now uses full HTTPS URLs for the action icon and popover. Owlbear does not resolve relative manifest paths against the GitHub Pages repository folder, so the v1.0 popover failed to load. No other playback code was changed.
 
 ## Install
 

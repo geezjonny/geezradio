@@ -1,14 +1,14 @@
 {
   "name": "GeezRadio",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "manifest_version": 1,
   "description": "Shared YouTube music queue for Owlbear Rodeo",
   "author": "GeezSheets",
-  "icon": "icon.svg",
+  "icon": "https://geezjonny.github.io/GeezRadio/icon.svg",
   "action": {
     "title": "GeezRadio",
-    "icon": "icon.svg",
-    "popover": "https://geezjonny.github.io/geezradio/index.html",
+    "icon": "https://geezjonny.github.io/GeezRadio/icon.svg",
+    "popover": "https://geezjonny.github.io/GeezRadio/index.html",
     "width": 410,
     "height": 650
   },
