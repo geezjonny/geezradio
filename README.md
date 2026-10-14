@@ -1,26 +1,28 @@
-# GeezRadio v1.0.1
+# GeezRadio v1.1
 
-A simple YouTube queue for Owlbear Rodeo. Host these files at the root of a GitHub Pages repository.
-
-## Fix in 1.0.1
-
-The manifest now uses full HTTPS URLs for the action icon and popover. Owlbear does not resolve relative manifest paths against the GitHub Pages repository folder, so the v1.0 popover failed to load. No other playback code was changed.
+Owlbear Rodeo extension with named YouTube tracks, a shared music queue, saved playlists, and a YouTube soundboard.
 
 ## Install
 
-1. Create a public GitHub repository named `GeezRadio`.
-2. Upload all five files (`manifest.json`, `index.html`, `app.js`, `style.css`, `icon.svg`) into the repository root.
-3. Under Settings → Pages, publish from the `main` branch root.
-4. In Owlbear Rodeo, install: `https://geezjonny.github.io/GeezRadio/manifest.json`.
-5. Every player should open the GeezRadio action and click **Enable audio on this device**. Leave that panel open during playback.
-6. The GM adds video links and controls the queue. Loop modes: Off / All / One. Every player controls their own volume.
+Upload `index.html`, `app.js`, `style.css`, `manifest.json`, and `icon.svg` into the ROOT of your GitHub repository named **geezradio** (lowercase). Enable GitHub Pages from `main` / root.
 
-## Known limitations
+Install in Owlbear using:
 
-- Owlbear action popovers are not guaranteed to persist once closed. Audio **stops when the panel closes**. Future versions can explore a background audio implementation, but browser autoplay restrictions apply.
-- YouTube embeds can be blocked by the video owner, the browser, or embedded iframe security policies.
-- Every participant must click Enable audio; autoplay may need another click directly inside the embedded YouTube video.
-- Sync is best-effort, not sample-accurate: YouTube players buffer independently. GM advances the queue when their video ends; if GM closes the panel, automatic advancement cannot occur. Manual Skip still works.
-- This uses Owlbear room metadata (under 16 KB) for a small queue; it is **not** Firebase and does not upload/rehost copyrighted audio.
-- YouTube playlist URLs are not imported. Add individual video links.
-- Actual playback inside Owlbear has not been verified yet.
+https://geezjonny.github.io/geezradio/manifest.json
+
+Update an existing installation by replacing all five files, then hard refresh the Owlbear room. If Owlbear caches an older extension manifest, remove and re-add it.
+
+## How to use
+
+- **Music:** GM pastes a YouTube URL, supplies an optional name, and queues it. Rename a queued track using ✎. All players see the same queue.
+- **Playlists:** Save the current queue in **this browser's localStorage**, load it later as GM, or Export/Import JSON to move playlists to another browser. These saved playlists are *not* room-synced; loading one replaces the shared queue.
+- **Soundboard:** GM registers short YouTube clips and triggers them on a separate YouTube player, while background music keeps running. Sound buttons are shared via Owlbear room metadata.
+- **Audio:** Every participant must open the extension and activate audio on their device. Keep the extension open to listen. Browser autoplay limitations and videos that forbid embedding still apply.
+
+## Notes
+
+- Names of already-queued tracks from v1 are displayed as `YouTube <video ID>`; use ✎ to rename them.
+- The soundboard isn't instantaneous: YouTube loads videos remotely and may show ads or deny embeds.
+- YouTube is not a substitute for short, locally hosted audio samples if low latency is essential.
+- GM controls shared room state; queue and soundboard entries survive popup closure subject to Owlbear room metadata lifetime.
+- No API keys or Firebase changes required.

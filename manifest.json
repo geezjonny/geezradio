@@ -1,21 +1,21 @@
 {
   "name": "GeezRadio",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "manifest_version": 1,
-  "description": "Shared YouTube music queue for Owlbear Rodeo",
+  "description": "Shared YouTube music queue, named tracks, playlists, and soundboard",
   "author": "GeezSheets",
-  "icon": "https://geezjonny.github.io/GeezRadio/icon.svg",
+  "icon": "https://geezjonny.github.io/geezradio/icon.svg",
   "action": {
     "title": "GeezRadio",
-    "icon": "https://geezjonny.github.io/GeezRadio/icon.svg",
-    "popover": "https://geezjonny.github.io/GeezRadio/index.html",
-    "width": 410,
-    "height": 650
+    "icon": "https://geezjonny.github.io/geezradio/icon.svg",
+    "popover": "https://geezjonny.github.io/geezradio/index.html",
+    "width": 430,
+    "height": 700
   },
   "permissions": [
     {
       "name": "autoplay",
-      "reason": "Play the shared soundtrack when the GM starts a song"
+      "reason": "Play GM-selected songs and sound effects"
     }
   ]
 }

@@ -8,19 +8,23 @@
 </head>
 <body>
   <header>
-    <div><strong>♫ GeezRadio</strong><small id="role">Connecting to Owlbear…</small></div>
+    <div><strong>♫ GeezRadio</strong><small id="role">Connecting…</small></div>
     <span class="pill" id="connection">Starting</span>
   </header>
-
-  <section class="now">
+  <nav class="tabs" aria-label="Radio tabs">
+    <button data-tab="music" class="selected">♫ Music</button>
+    <button data-tab="playlists">☷ Playlists</button>
+    <button data-tab="sounds">◉ Soundboard</button>
+  </nav>
+  <section id="tab-music" class="tab">
     <div class="eyebrow">NOW PLAYING</div>
     <strong id="nowTitle">Nothing playing</strong>
     <span id="nowId" class="muted"></span>
     <div id="player" class="video"></div>
     <div class="controls">
-      <button id="playPause" title="Play or pause">▶ Play</button>
-      <button id="skip" title="Skip to next song">⏭ Skip</button>
-      <button id="loop" title="Cycle loop mode">Loop: Off</button>
+      <button id="playPause">▶ Play</button>
+      <button id="skip">⏭ Skip</button>
+      <button id="loop">Loop: Off</button>
     </div>
     <div class="volume">
       <label for="volume">My volume</label>
@@ -28,24 +32,42 @@
       <span id="volumeNumber">60%</span>
     </div>
     <button id="enable" class="full primary">▶ Enable audio on this device</button>
-    <p class="hint" id="status">Open this panel on each player's device and enable audio once. Keep the panel open to hear music.</p>
+    <div id="gmSection">
+      <form id="addForm">
+        <label for="url">Add YouTube track</label>
+        <input id="url" type="text" placeholder="YouTube URL or video ID" required>
+        <input id="trackName" type="text" maxlength="100" placeholder="Track name (optional)">
+        <button type="submit" class="full">+ Add to queue</button>
+      </form>
+    </div>
+    <div class="queueHead"><strong>Queue</strong><button id="clear">Clear</button></div>
+    <div id="queue" class="queue"></div>
   </section>
-
-  <section id="gmSection">
-    <form id="addForm">
-      <label for="url">Add a YouTube video to the queue</label>
-      <div class="formRow">
-        <input id="url" type="text" placeholder="Paste YouTube link or video ID" required>
-        <button type="submit">+ Add</button>
-      </div>
+  <section id="tab-playlists" class="tab" hidden>
+    <h3>Saved playlists</h3>
+    <p class="hint">Saved in this browser. Export a backup to use on other devices.</p>
+    <form id="savePlaylistForm" class="formRow">
+      <input id="playlistName" type="text" maxlength="70" placeholder="e.g. Tavern ambience" required>
+      <button type="submit">Save queue</button>
     </form>
+    <div id="playlists" class="queue"></div>
+    <div class="formRow"><button id="exportPlaylists">Export JSON</button><label class="importLabel">Import JSON<input id="importPlaylists" type="file" accept=".json,application/json" hidden></label></div>
   </section>
-
-  <section>
-    <div class="queueHead"><strong>Queue</strong><button id="clear">Clear queue</button></div>
-    <div id="queue" class="queue"><span class="muted">No songs yet</span></div>
+  <section id="tab-sounds" class="tab" hidden>
+    <h3>Soundboard</h3>
+    <p class="hint">GM triggers short YouTube clips for everyone. Sound effects use a separate player so music continues. Some YouTube videos block embedding or autoplay.</p>
+    <div id="soundFormArea">
+      <form id="soundForm">
+        <input id="soundName" type="text" maxlength="70" placeholder="Sound name (e.g. Thunder)" required>
+        <input id="soundUrl" type="text" placeholder="YouTube link or video ID" required>
+        <button type="submit" class="full">+ Add sound</button>
+      </form>
+    </div>
+    <div id="soundButtons" class="soundGrid"></div>
+    <button id="stopSound">■ Stop sound</button>
+    <div id="soundPlayer" class="soundVideo"></div>
   </section>
-
+  <section><p class="hint" id="status" aria-live="polite">Open GeezRadio on each device and enable audio. Keep the panel open.</p></section>
   <script type="module" src="app.js"></script>
 </body>
 </html>
