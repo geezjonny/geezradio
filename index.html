@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GeezRadio</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div><strong>♫ GeezRadio</strong><small id="role">Connecting to Owlbear…</small></div>
+    <span class="pill" id="connection">Starting</span>
+  </header>
+
+  <section class="now">
+    <div class="eyebrow">NOW PLAYING</div>
+    <strong id="nowTitle">Nothing playing</strong>
+    <span id="nowId" class="muted"></span>
+    <div id="player" class="video"></div>
+    <div class="controls">
+      <button id="playPause" title="Play or pause">▶ Play</button>
+      <button id="skip" title="Skip to next song">⏭ Skip</button>
+      <button id="loop" title="Cycle loop mode">Loop: Off</button>
+    </div>
+    <div class="volume">
+      <label for="volume">My volume</label>
+      <input id="volume" type="range" min="0" max="100" value="60">
+      <span id="volumeNumber">60%</span>
+    </div>
+    <button id="enable" class="full primary">▶ Enable audio on this device</button>
+    <p class="hint" id="status">Open this panel on each player's device and enable audio once. Keep the panel open to hear music.</p>
+  </section>
+
+  <section id="gmSection">
+    <form id="addForm">
+      <label for="url">Add a YouTube video to the queue</label>
+      <div class="formRow">
+        <input id="url" type="text" placeholder="Paste YouTube link or video ID" required>
+        <button type="submit">+ Add</button>
+      </div>
+    </form>
+  </section>
+
+  <section>
+    <div class="queueHead"><strong>Queue</strong><button id="clear">Clear queue</button></div>
+    <div id="queue" class="queue"><span class="muted">No songs yet</span></div>
+  </section>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
