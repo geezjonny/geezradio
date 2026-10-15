@@ -15,18 +15,18 @@ effect.preload = "auto";
 let gm = false;
 let unlocked = false;
 let roomState = emptyState();
-let revisionSeen = -1;
+let stateSeen = "";
 let currentMusicPath = "";
 let currentSoundNonce = null;
 let library = { music: [], sounds: [] };
 let playlists = loadPlaylists();
-let writeBusy = false;
+let pendingWrites = Promise.resolve();
 
 function emptyState() {
   return {
     queue: [], index: -1, playing: false, position: 0,
     updatedAt: Date.now(), loop: "off", revision: 0,
-    soundEvent: null
+    soundEvent: null, playbackId: "", updateId: ""
   };
 }
 
@@ -35,7 +35,7 @@ function status(message) { $("status").textContent = message; }
 function audioPath(value, folder = "music") {
   const raw = String(value || "").trim().replace(/^\/+/, "");
   let path = raw;
-  if (raw.startsWith(ROOT)) path = decodeURIComponent(raw.slice(ROOT.length));
+  if (raw.startsWith(ROOT)) path = raw.slice(ROOT.length);
   if (!path.includes("/")) path = `${folder}/${path}`;
   const chunks = path.split("/").map(piece => {
     try { return decodeURIComponent(piece); } catch { return piece; }
@@ -76,29 +76,34 @@ function cleanState(input) {
     updatedAt: Number(input.updatedAt) || Date.now(),
     loop: ["off", "all", "one"].includes(input.loop) ? input.loop : "off",
     revision: Number(input.revision) || 0,
-    soundEvent
+    soundEvent,
+    playbackId: String(input.playbackId || ""),
+    updateId: String(input.updateId || "")
   };
 }
 
-async function commit(change) {
-  if (!gm || writeBusy) return;
-  writeBusy = true;
-  try {
+function commit(change, { restart = false } = {}) {
+  if (!gm) return Promise.resolve();
+  pendingWrites = pendingWrites.then(async () => {
+    if (!gm) return;
     const existing = cleanState((await OBR.room.getMetadata())[KEY]);
-    const updated = cleanState(change(existing));
+    const changed = change(existing);
+    if (changed === existing) return;
+    const updated = cleanState(changed);
     updated.revision = existing.revision + 1;
+    updated.updateId = crypto.randomUUID();
+    if (restart) updated.playbackId = crypto.randomUUID();
     const oldPath = existing.queue[existing.index]?.path;
     const newPath = updated.queue[updated.index]?.path;
-    const unchangedPlayback = oldPath === newPath &&
+    const unchangedPlayback = !restart && oldPath === newPath &&
       existing.playing === updated.playing &&
       existing.position === updated.position;
     updated.updatedAt = unchangedPlayback ? existing.updatedAt : Date.now();
     await OBR.room.setMetadata({ [KEY]: updated });
-  } catch (error) {
+  }).catch(error => {
     status(`Unable to update room: ${error.message}`);
-  } finally {
-    writeBusy = false;
-  }
+  });
+  return pendingWrites;
 }
 
 function currentTrack() { return roomState.queue[roomState.index] || null; }
@@ -127,7 +132,7 @@ function renderQueue() {
     label.textContent = `${index + 1}. ${track.name}`;
     row.append(label);
     if (gm) {
-      row.append(button("▶", () => commit(s => ({ ...s, index, playing: true, position: 0 })), "Play"));
+      row.append(button("▶", () => commit(s => ({ ...s, index, playing: true, position: 0 }), { restart: true }), "Play"));
       row.append(button("↑", () => moveTrack(index, -1), "Move up"));
       row.append(button("↓", () => moveTrack(index, 1), "Move down"));
       row.append(button("×", () => commit(s => {
@@ -196,8 +201,9 @@ function musicSync(force = false) {
     force = true;
   }
   if (!track) return;
-  const target = elapsed();
   const seek = () => {
+    if (path !== currentMusicPath) return;
+    const target = elapsed();
     try {
       if (Number.isFinite(target) && (force || Math.abs(music.currentTime - target) > 2.5)) {
         music.currentTime = target;
@@ -228,21 +234,23 @@ function soundSync() {
 
 function receive(metadata) {
   const next = cleanState(metadata[KEY]);
-  if (next.revision === revisionSeen) return;
+  const signature = JSON.stringify(next);
+  if (signature === stateSeen) return;
   const old = roomState;
   const oldTrack = old.queue[old.index]?.path;
   roomState = next;
-  revisionSeen = next.revision;
+  stateSeen = signature;
   display();
   const newTrack = currentTrack()?.path;
   const playbackChanged = old.playing !== next.playing ||
     old.position !== next.position || old.updatedAt !== next.updatedAt;
-  if (oldTrack !== newTrack || playbackChanged) musicSync(oldTrack !== newTrack);
+  const restarted = old.playbackId !== next.playbackId;
+  if (oldTrack !== newTrack || playbackChanged || restarted) musicSync(oldTrack !== newTrack || restarted);
   soundSync();
 }
 
 function advance() {
-  commit(s => {
+  return commit(s => {
     if (!s.queue.length) return { ...s, playing: false };
     if (s.loop === "one") return { ...s, playing: true, position: 0 };
     if (s.index + 1 < s.queue.length) {
@@ -251,7 +259,7 @@ function advance() {
     return s.loop === "all"
       ? { ...s, index: 0, position: 0, playing: true }
       : { ...s, position: 0, playing: false };
-  });
+  }, { restart: true });
 }
 music.addEventListener("ended", () => { if (gm && roomState.playing) advance(); });
 music.addEventListener("error", () => {
@@ -294,8 +302,15 @@ async function refreshFolder(folder) {
 function loadPlaylists() {
   try {
     const saved = JSON.parse(localStorage.getItem(SAVED_KEY) || "[]");
-    return Array.isArray(saved) ? saved.slice(0, 50) : [];
+    return cleanPlaylists(saved);
   } catch { return []; }
+}
+function cleanPlaylists(items) {
+  return (Array.isArray(items) ? items : []).filter(item => item && typeof item === "object")
+    .slice(0, 50).map(item => ({
+      name: String(item.name || "Unnamed").slice(0, 70),
+      queue: (Array.isArray(item.queue) ? item.queue : []).map(cleanTrack).filter(Boolean).slice(0, 40)
+    }));
 }
 function savePlaylists() { localStorage.setItem(SAVED_KEY, JSON.stringify(playlists)); }
 function renderPlaylists() {
@@ -409,10 +424,7 @@ $("importPlaylists").onchange = async event => {
     if (data.format !== "geezradio-mp3-v2" || !Array.isArray(data.playlists)) {
       throw new Error("Expected a GeezRadio v2 playlist export");
     }
-    const imported = data.playlists.slice(0, 50).map(item => ({
-      name: String(item.name || "Unnamed").slice(0, 70),
-      queue: (Array.isArray(item.queue) ? item.queue : []).map(cleanTrack).filter(Boolean).slice(0, 40)
-    }));
+    const imported = cleanPlaylists(data.playlists);
     const combined = new Map(playlists.map(p => [p.name.toLowerCase(), p]));
     for (const item of imported) combined.set(item.name.toLowerCase(), item);
     playlists = [...combined.values()].slice(-50);
@@ -430,6 +442,7 @@ async function start() {
     // Ignore stale sound events when initially joining.
     currentSoundNonce = metadata[KEY]?.soundEvent?.nonce || null;
     receive(metadata);
+    renderPlaylists();
     OBR.room.onMetadataChange(receive);
     OBR.player.onChange(player => {
       gm = player.role === "GM";

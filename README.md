@@ -46,6 +46,7 @@ The **room queue, playback state, loop choice, and sound effect triggers** are s
 - Tracks and effects must be hosted beneath `https://geezjonny.github.io/geezradio/music/` and `/sounds/`; arbitrary streaming URLs are not supported.
 - The old v1.1 YouTube queue is not compatible with MP3 paths. V2 uses a new local playlist storage key to avoid corrupting older saved playlists.
 - Room metadata is small (16 KB total, shared among extensions); queue is limited to 40 items.
+- Commands from one panel run in order. If multiple GMs control playback at the same time, room updates can overwrite each other; use one GM panel for playback controls.
 
 ## Quick verification
 
@@ -54,3 +55,17 @@ Once you've uploaded `music/tavern.mp3`, check that this opens in your browser:
 `https://geezjonny.github.io/geezradio/music/tavern.mp3`
 
 When that works, press Refresh in GeezRadio. If it doesn't show, check the filename capitalization and whether the file is on the `main` branch.
+
+## Development checks
+
+Run `node --test tests/app.test.cjs` and `node --check app.js` with Node.js installed.
+The tests use simulated room metadata and audio; browser autoplay and cross-device playback still need an Owlbear session.
+
+Before calling a release done:
+
+- Add at least one music file and verify its GitHub Pages URL.
+- Open the extension as a GM and a player on separate devices and enable audio on both.
+- Verify play/pause, late joining, queue edits, skipping, repeat-one, and repeat-all (including a one-track queue).
+- Trigger and stop effects while music plays; check each listener's independent volume controls.
+- Save a playlist, reopen the panel, load it as GM, and verify export/import.
+- Verify the deployed manifest and extension load successfully in Owlbear.
