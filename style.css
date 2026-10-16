@@ -33,7 +33,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .controls { margin: 14px 0; }
 .controls button { flex: 1; }
 .volume { margin-top: 10px; }
-.volume label { width: 48px; font-size: 12px; }
+.volume label { width: 60px; font-size: 12px; }
 .volume input { flex: 1; min-width: 30px; }
 .volume span { width: 39px; font-size: 12px; text-align: right; }
 .eyebrow { font-size: 10px; color: #a7b5d6; letter-spacing: 1px; font-weight: 750; margin-bottom: 6px; }
@@ -66,5 +66,9 @@ details form { margin-top: 10px; }
 .hint { font-size: 12px; line-height: 1.5; margin: 7px 0; }
 .soundGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
 .soundGrid button { min-width: 0; overflow-wrap: anywhere; }
+.soundItem { display: flex; gap: 4px; min-width: 0; }
+.soundItem button:first-child { flex: 1; }
+.loopToggle { padding: 9px 8px; }
+.loopToggle.on { background: #6846b9; border-color: #906edd; }
 .importLabel { display: inline-block; }
 .footer { border-bottom: 0; }

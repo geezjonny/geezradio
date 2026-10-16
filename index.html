@@ -30,6 +30,11 @@
       <input id="sfxVolume" type="range" min="0" max="100" value="75">
       <span id="sfxVolumeNumber">75%</span>
     </div>
+    <div class="volume">
+      <label for="ambienceVolume">Ambience</label>
+      <input id="ambienceVolume" type="range" min="0" max="100" value="50">
+      <span id="ambienceVolumeNumber">50%</span>
+    </div>
   </section>
 
   <section id="tab-music" class="tab">
@@ -80,11 +85,13 @@
 
   <section id="tab-sounds" class="tab" hidden>
     <h3>Soundboard</h3>
-    <p class="hint">Files from <code>sounds/</code> appear here automatically. The GM triggers them for everyone with audio enabled. Music keeps playing.</p>
+    <p class="hint">Files from <code>sounds/</code> appear here automatically. The GM triggers them for everyone with audio enabled. Music keeps playing. Press <strong>⟳</strong> to loop a sound as background ambience (rain, wind…); one-shot effects play over it.</p>
+    <button id="refreshSounds" type="button" class="full">↻ Refresh sounds from GitHub</button>
     <div class="formRow">
-      <button id="refreshSounds" type="button" class="full">↻ Refresh sounds from GitHub</button>
-      <button id="stopSound" type="button">■ Stop</button>
+      <button id="stopSound" type="button" class="full">■ Stop effect</button>
+      <button id="stopAmbience" type="button" class="full">■ Stop ambience</button>
     </div>
+    <p id="ambienceNow" class="hint">No ambience playing.</p>
     <div id="soundButtons" class="soundGrid"></div>
   </section>
 

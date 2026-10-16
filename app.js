@@ -4,13 +4,22 @@ const ROOT = "https://geezjonny.github.io/geezradio/";
 const GITHUB = "https://api.github.com/repos/geezjonny/geezradio/contents/";
 const KEY = "com.geezsheets.geezradio/state";
 const SAVED_KEY = "geezradio/playlists/v2";
+const VOLUME_KEY = "geezradio/volume/v1";
 const AUDIO_EXTENSIONS = /\.(mp3|ogg|wav|m4a)$/i;
+const MAX_AMBIENCE = 6;
+// Slider and readout element ids for each volume channel.
+const VOLUME_CONTROLS = {
+  music: ["volume", "volumeNumber"],
+  effects: ["sfxVolume", "sfxVolumeNumber"],
+  ambience: ["ambienceVolume", "ambienceVolumeNumber"]
+};
 const $ = id => document.getElementById(id);
 
 const music = new Audio();
 const effect = new Audio();
 music.preload = "auto";
 effect.preload = "auto";
+const ambience = new Map(); // sound path -> looping Audio
 
 let gm = false;
 let unlocked = false;
@@ -20,13 +29,14 @@ let currentMusicPath = "";
 let currentSoundNonce = null;
 let library = { music: [], sounds: [] };
 let playlists = loadPlaylists();
+let volumes = loadVolumes();
 let pendingWrites = Promise.resolve();
 
 function emptyState() {
   return {
     queue: [], index: -1, playing: false, position: 0,
     updatedAt: Date.now(), loop: "off", revision: 0,
-    soundEvent: null, playbackId: "", updateId: ""
+    soundEvent: null, ambience: [], playbackId: "", updateId: ""
   };
 }
 
@@ -68,6 +78,8 @@ function cleanState(input) {
     stop: rawEvent.stop === true,
     at: Number(rawEvent.at) || 0
   } : null;
+  const ambiencePaths = (Array.isArray(input.ambience) ? input.ambience : [])
+    .map(path => audioPath(path, "sounds")).filter(Boolean);
   return {
     queue,
     index: Math.max(-1, Math.min(Number.isInteger(input.index) ? input.index : -1, queue.length - 1)),
@@ -77,6 +89,7 @@ function cleanState(input) {
     loop: ["off", "all", "one"].includes(input.loop) ? input.loop : "off",
     revision: Number(input.revision) || 0,
     soundEvent,
+    ambience: [...new Set(ambiencePaths)].slice(0, MAX_AMBIENCE),
     playbackId: String(input.playbackId || ""),
     updateId: String(input.updateId || "")
   };
@@ -165,14 +178,38 @@ function renderSoundboard() {
     return;
   }
   for (const track of library.sounds) {
+    const row = document.createElement("div");
+    row.className = "soundItem";
     const control = button(`▶ ${track.name}`, () => {
       commit(s => ({ ...s, soundEvent: {
         path: track.path, nonce: `${Date.now()}-${Math.random()}`, at: Date.now(), stop: false
       } }));
-    });
-    control.disabled = !gm;
-    parent.append(control);
+    }, "Play once for everyone");
+    const looping = roomState.ambience.includes(track.path);
+    const loopControl = button("⟳", () => toggleAmbience(track.path),
+      looping ? "Stop this ambience loop" : "Loop as ambience");
+    loopControl.className = looping ? "loopToggle on" : "loopToggle";
+    control.disabled = loopControl.disabled = !gm;
+    row.append(control, loopControl);
+    parent.append(row);
   }
+}
+
+function toggleAmbience(path) {
+  return commit(s => {
+    if (s.ambience.includes(path)) return { ...s, ambience: s.ambience.filter(p => p !== path) };
+    if (s.ambience.length >= MAX_AMBIENCE) {
+      status(`Up to ${MAX_AMBIENCE} ambience loops can play at once.`);
+      return s;
+    }
+    return { ...s, ambience: [...s.ambience, path] };
+  });
+}
+
+function renderAmbience() {
+  const names = roomState.ambience.map(titleForPath);
+  $("ambienceNow").textContent = names.length ? `Ambience: ${names.join(", ")}` : "No ambience playing.";
+  $("stopAmbience").disabled = !gm || !names.length;
 }
 
 function display() {
@@ -187,6 +224,7 @@ function display() {
   $("gmMusic").hidden = !gm;
   renderQueue();
   renderSoundboard();
+  renderAmbience();
 }
 
 function musicSync(force = false) {
@@ -232,6 +270,32 @@ function soundSync() {
   effect.play().catch(() => status("Sound blocked. Click Enable audio."));
 }
 
+// Ambience is continuous room state, so late joiners hear it too.
+function ambienceSync() {
+  const wanted = new Set(roomState.ambience);
+  for (const [path, audio] of ambience) {
+    if (wanted.has(path)) continue;
+    audio.pause();
+    audio.removeAttribute("src");
+    ambience.delete(path);
+  }
+  for (const path of wanted) {
+    let audio = ambience.get(path);
+    if (!audio) {
+      audio = new Audio();
+      audio.loop = true;
+      audio.preload = "auto";
+      audio.volume = volumes.ambience / 100;
+      audio.addEventListener("error", () => status(`Cannot load ambience: ${titleForPath(path)}.`));
+      audio.src = playableUrl(path);
+      ambience.set(path, audio);
+    }
+    if (unlocked && audio.paused) {
+      audio.play().catch(() => status("Ambience blocked. Click Enable audio."));
+    }
+  }
+}
+
 function receive(metadata) {
   const next = cleanState(metadata[KEY]);
   const signature = JSON.stringify(next);
@@ -247,6 +311,7 @@ function receive(metadata) {
   const restarted = old.playbackId !== next.playbackId;
   if (oldTrack !== newTrack || playbackChanged || restarted) musicSync(oldTrack !== newTrack || restarted);
   soundSync();
+  ambienceSync();
 }
 
 function advance() {
@@ -313,6 +378,24 @@ function cleanPlaylists(items) {
     }));
 }
 function savePlaylists() { localStorage.setItem(SAVED_KEY, JSON.stringify(playlists)); }
+
+function loadVolumes() {
+  const defaults = { music: 60, effects: 75, ambience: 50 };
+  try {
+    const saved = JSON.parse(localStorage.getItem(VOLUME_KEY) || "{}");
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return defaults;
+    for (const key of Object.keys(defaults)) {
+      const value = Number(saved[key]);
+      if (Number.isFinite(value)) defaults[key] = Math.round(Math.max(0, Math.min(100, value)));
+    }
+  } catch { /* Storage may be unavailable; use defaults. */ }
+  return defaults;
+}
+function applyVolumes() {
+  music.volume = volumes.music / 100;
+  effect.volume = volumes.effects / 100;
+  for (const audio of ambience.values()) audio.volume = volumes.ambience / 100;
+}
 function renderPlaylists() {
   const parent = $("playlists");
   parent.replaceChildren();
@@ -349,20 +432,22 @@ for (const tabButton of document.querySelectorAll("[data-tab]")) {
 $("enable").onclick = async () => {
   unlocked = true;
   // A user gesture is required by some browsers before sound is allowed.
-  music.volume = Number($("volume").value) / 100;
-  effect.volume = Number($("sfxVolume").value) / 100;
+  applyVolumes();
   musicSync(true);
+  ambienceSync();
   $("enable").textContent = "✓ Audio enabled";
   status("Audio enabled. Keep this panel open on each device.");
 };
-$("volume").oninput = () => {
-  $("volumeNumber").textContent = `${$("volume").value}%`;
-  music.volume = Number($("volume").value) / 100;
-};
-$("sfxVolume").oninput = () => {
-  $("sfxVolumeNumber").textContent = `${$("sfxVolume").value}%`;
-  effect.volume = Number($("sfxVolume").value) / 100;
-};
+for (const [key, [sliderId, numberId]] of Object.entries(VOLUME_CONTROLS)) {
+  $(sliderId).value = String(volumes[key]);
+  $(numberId).textContent = `${volumes[key]}%`;
+  $(sliderId).oninput = () => {
+    volumes[key] = Number($(sliderId).value);
+    $(numberId).textContent = `${volumes[key]}%`;
+    applyVolumes();
+    try { localStorage.setItem(VOLUME_KEY, JSON.stringify(volumes)); } catch { /* Not saved. */ }
+  };
+}
 $("playPause").onclick = () => commit(s => ({
   ...s, playing: !s.playing, position: elapsed(s)
 }));
@@ -394,6 +479,7 @@ $("addForm").onsubmit = event => {
 $("stopSound").onclick = () => commit(s => ({ ...s, soundEvent: {
   path: null, stop: true, nonce: `${Date.now()}-${Math.random()}`, at: Date.now()
 } }));
+$("stopAmbience").onclick = () => commit(s => ({ ...s, ambience: [] }));
 $("savePlaylistForm").onsubmit = event => {
   event.preventDefault();
   const name = $("playlistName").value.trim();

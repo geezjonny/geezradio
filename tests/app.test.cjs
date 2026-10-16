@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { randomUUID } = require('node:crypto');
 
-function harness(saved = []) {
+function harness(saved = [], stored = {}) {
   const elements = new Map();
   const element = () => ({
     children: [], value: '60', textContent: '',
@@ -15,9 +15,9 @@ function harness(saved = []) {
   let metadata = {};
   let ready;
   class Audio {
-    constructor() { this.readyState = 1; this.currentTime = 0; }
-    pause() {} load() {} addEventListener() {} removeAttribute() {}
-    play() { return Promise.resolve(); }
+    constructor() { this.readyState = 1; this.currentTime = 0; this.paused = true; }
+    pause() { this.paused = true; } load() {} addEventListener() {} removeAttribute() {}
+    play() { this.paused = false; return Promise.resolve(); }
   }
   const context = vm.createContext({
     Audio, crypto: { randomUUID }, console, setInterval() {},
@@ -28,7 +28,10 @@ function harness(saved = []) {
       },
       createElement: element, querySelectorAll: () => []
     },
-    localStorage: { getItem: () => JSON.stringify(saved) },
+    localStorage: {
+      getItem: key => key === 'geezradio/volume/v1' ? stored.volume ?? null : JSON.stringify(saved),
+      setItem: (key, value) => { if (key === 'geezradio/volume/v1') stored.volume = value; }
+    },
     fetch: async () => ({ ok: true, json: async () => [] }),
     OBR: {
       onReady(callback) { ready = callback; },
@@ -109,4 +112,42 @@ test('music-only updates preserve the clock and malformed URL escapes do not thr
   await app.run('commit(s => ({ ...s, loop: "all" }))');
   assert.equal(app.state().updatedAt, 1000);
   assert.doesNotThrow(() => app.run('audioPath(ROOT + "music/bad%name.mp3")'));
+});
+
+test('ambience loops are deduplicated, capped, and leave the music clock alone', async () => {
+  const app = harness();
+  app.seed(playing());
+  app.run('gm = true');
+  for (const name of ['rain', 'rain', 'wind', 'a', 'b', 'c', 'd', 'e']) {
+    await app.run(`toggleAmbience(audioPath("${name}.mp3", "sounds"))`);
+  }
+  assert.deepEqual([...app.state().ambience],
+    ['sounds/wind.mp3', 'sounds/a.mp3', 'sounds/b.mp3', 'sounds/c.mp3', 'sounds/d.mp3', 'sounds/e.mp3']);
+  assert.equal(app.state().updatedAt, 1000);
+  assert.equal(app.run('cleanState({ ambience: ["../x.mp3", "sounds/ok.mp3", 4] }).ambience').length, 1);
+});
+
+test('ambience players loop, start once audio is enabled, and stop when removed', () => {
+  const app = harness();
+  app.run(`receive({ [KEY]: { ambience: ['sounds/rain.mp3', 'sounds/wind.mp3'] } })`);
+  assert.equal(app.run('ambience.size'), 2);
+  assert.equal(app.run('ambience.get("sounds/rain.mp3").loop'), true);
+  assert.equal(app.run('ambience.get("sounds/rain.mp3").paused'), true);
+  app.run('unlocked = true; ambienceSync()');
+  assert.equal(app.run('ambience.get("sounds/rain.mp3").paused'), false);
+  app.run(`receive({ [KEY]: { ambience: ['sounds/wind.mp3'] } })`);
+  assert.deepEqual(app.run('JSON.stringify([...ambience.keys()])'), '["sounds/wind.mp3"]');
+});
+
+test('volume settings persist and invalid saved values fall back to defaults', () => {
+  const stored = { volume: JSON.stringify({ music: 20, effects: 'loud', ambience: 250 }) };
+  const app = harness([], stored);
+  assert.equal(app.elements.get('volume').value, '20');
+  assert.equal(app.elements.get('sfxVolume').value, '75');
+  assert.equal(app.elements.get('ambienceVolume').value, '100');
+  app.elements.get('volume').value = '35';
+  app.elements.get('volume').oninput();
+  assert.equal(JSON.parse(stored.volume).music, 35);
+  assert.equal(app.elements.get('volumeNumber').textContent, '35%');
+  assert.equal(harness([], { volume: '[1,2]' }).elements.get('volume').value, '60');
 });

@@ -1,4 +1,6 @@
-# GeezRadio v2.0 — GitHub MP3 music + soundboard
+# GeezRadio v2.1 — GitHub MP3 music + soundboard
+
+**v2.1:** Any soundboard file can loop as background ambience with the **⟳** button (up to 6 at once), layered under music and one-shot effects, with its own volume slider. Music, effects and ambience volumes are remembered on each device.
 
 This is a **replacement for v1.1**, not a second extension. Both the Music and Soundboard tabs now use audio files hosted on your own GitHub Pages site. No YouTube player.
 
@@ -33,7 +35,7 @@ The ZIP has empty `music/` and `sounds/` folders (with `.gitkeep` files so GitHu
 
 ### What is shared
 
-The **room queue, playback state, loop choice, and sound effect triggers** are shared using Owlbear room metadata. The GM controls these, and players listen. Music and effects have separate volume settings for each listener. Song audio plays through HTML Audio; sound effects use a second player and don't interrupt music.
+The **room queue, playback state, loop choice, sound effect triggers, and active ambience loops** are shared using Owlbear room metadata. The GM controls these, and players listen. Music, effects and ambience have separate volume settings for each listener, saved in that browser. Song audio plays through HTML Audio; sound effects use a second player and don't interrupt music. Each ambience loop has its own player, so effects play over it and players who join late still hear it.
 
 **Saved playlists are local to the browser**, with import and export options. Files are public on GitHub Pages and anyone with the links can play/download them. Upload audio you have permission to share.
 
@@ -66,6 +68,7 @@ Before calling a release done:
 - Add at least one music file and verify its GitHub Pages URL.
 - Open the extension as a GM and a player on separate devices and enable audio on both.
 - Verify play/pause, late joining, queue edits, skipping, repeat-one, and repeat-all (including a one-track queue).
-- Trigger and stop effects while music plays; check each listener's independent volume controls.
+- Trigger and stop effects while music plays; check each listener's independent volume controls, and that they are restored after reopening the panel.
+- Loop two ambience sounds, fire a one-shot effect over them, join late as a player, then use Stop ambience.
 - Save a playlist, reopen the panel, load it as GM, and verify export/import.
 - Verify the deployed manifest and extension load successfully in Owlbear.
